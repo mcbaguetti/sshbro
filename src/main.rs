@@ -29,6 +29,7 @@ enum Command {
     },
 
     /// Generate a new Ed25519 SSH key pair.
+    #[command(alias = "gen")]
     Generate {
         /// Key name without the .pub suffix.
         name: String,
@@ -53,7 +54,7 @@ enum Command {
     },
 
     /// Remove a managed key pair by name, e.g. id_ed25519.
-    #[command(alias = "delete")]
+    #[command(alias = "delete", alias = "rm")]
     Remove {
         /// Key name without the .pub suffix.
         name: String,

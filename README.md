@@ -7,8 +7,8 @@ A tiny local SSH key manager written in Rust.
 - Manages key pairs in `~/.ssh/sshbro/`.
 - `list` shows managed pairs, comments, and SHA-256 fingerprints from the public key.
 - `add` copies an existing private key and matching `.pub` file into the managed directory.
-- `remove` deletes a managed pair after confirmation.
-- `generate` creates a managed Ed25519 key pair with a chosen name.
+- `remove` (aliases `delete`, `rm`) deletes a managed pair after confirmation.
+- `generate` (alias `gen`) creates a managed Ed25519 key pair with a chosen name.
 - `show` displays the paths, comment, and fingerprint for one key.
 - `export` prints a public key ready to paste into a service or `authorized_keys`.
 - `agent add` and `agent remove` load or unload a managed key through `ssh-add`.
@@ -22,12 +22,12 @@ This version does not touch `authorized_keys`, `known_hosts`, or existing
 ```text
 cargo run -- list
 cargo run -- add ~/.ssh/`keypair_name`
-cargo run -- generate `keypair_name`
+cargo run -- generate `keypair_name`   # or: cargo run -- gen `keypair_name`
 cargo run -- show `keypair_name`
 cargo run -- export `keypair_name`
 cargo run -- agent add `keypair_name`
 cargo run -- agent remove `keypair_name`
-cargo run -- remove `keypair_name`
+cargo run -- remove `keypair_name`     # aliases: delete, rm
 ```
 
 `add` expects a matching public key next to the private key, for example:
