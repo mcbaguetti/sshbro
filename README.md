@@ -1,14 +1,7 @@
 # sshbro
 
 A tiny local SSH key manager written in Rust.
-_______
-  /   __  \
- |   /  \  |    ______ ______
- |   \__/  |   / ____// ____/  sshbro
-  \_______/-\ | | __ / /____   a tiny SSH key manager
-       |    \  \ |/ //  __  /  Your keys. Your keys now.
-       o            \___//_/
-       
+
 ## Scope of the first MVP
 
 - Manages key pairs in `~/.ssh/sshbro/`.
