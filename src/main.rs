@@ -49,6 +49,9 @@ enum Command {
     Export {
         /// Key name without the .pub suffix.
         name: String,
+
+        /// Remote SSH destination, for example user@203.0.113.10.
+        destination: Option<String>,
     },
 
     /// Manage a key loaded in ssh-agent.
@@ -112,7 +115,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             no_passphrase,
         } => generate_key(&dir, &name, no_passphrase)?,
         Command::Show { name } => show_key(&dir, &name)?,
-        Command::Export { name } => export_key(&dir, &name)?,
+        Command::Export { name, destination } => export_key(&dir, &name, destination.as_deref())?,
         Command::Agent { command } => match command {
             AgentCommand::Status => agent_status()?,
             AgentCommand::Add { name } => agent_add(&dir, &name)?,
@@ -185,7 +188,11 @@ fn show_key(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn export_key(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn export_key(
+    dir: &Path,
+    name: &str,
+    destination: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let (_, public_path) = paths_for_key(dir, name)?;
     if !public_path.is_file() {
         return Err(format!("managed public key not found: {name}").into());
@@ -196,8 +203,54 @@ fn export_key(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> 
         .lines()
         .find(|line| !line.trim().is_empty())
         .ok_or("public key file is empty")?;
-    PublicKey::from_openssh(public_key.trim())?;
-    println!("{}", public_key.trim());
+    let public_key = public_key.trim();
+    PublicKey::from_openssh(public_key)?;
+
+    if let Some(destination) = destination {
+        install_public_key(destination, public_key)?;
+        println!("Installed {name} on {destination}");
+    } else {
+        println!("{public_key}");
+    }
+    Ok(())
+}
+
+fn install_public_key(
+    destination: &str,
+    public_key: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if destination.is_empty()
+        || destination.starts_with('-')
+        || destination
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("invalid destination; use a value such as user@203.0.113.10".into());
+    }
+
+    // The public key is passed over standard input, never interpolated into the remote shell command.
+    // A temporary file lets the remote side compare it before appending, preventing duplicate entries.
+    const INSTALL_COMMAND: &str = "set -eu; temp=$(mktemp); trap 'rm -f \"$temp\"' EXIT; cat > \"$temp\"; mkdir -p \"$HOME/.ssh\"; chmod 700 \"$HOME/.ssh\"; touch \"$HOME/.ssh/authorized_keys\"; chmod 600 \"$HOME/.ssh/authorized_keys\"; grep -qxF -f \"$temp\" \"$HOME/.ssh/authorized_keys\" || cat \"$temp\" >> \"$HOME/.ssh/authorized_keys\"";
+
+    let mut child = ProcessCommand::new("ssh")
+        .arg(destination)
+        .arg(INSTALL_COMMAND)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("could not run ssh: {err}"))?;
+
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or("could not open ssh standard input")?;
+    writeln!(stdin, "{public_key}")?;
+    drop(child.stdin.take());
+
+    let status = child.wait()?;
+    if !status.success() {
+        return Err(format!("could not install the key on {destination}").into());
+    }
+
     Ok(())
 }
 

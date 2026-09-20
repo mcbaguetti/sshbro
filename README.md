@@ -26,6 +26,7 @@ cargo run -- generate `keypair_name`   # or: cargo run -- gen `keypair_name`
 cargo run -- generate `keypair_name` --no-passphrase
 cargo run -- show `keypair_name`
 cargo run -- export `keypair_name`
+cargo run -- export `keypair_name` user@203.0.113.10
 cargo run -- agent add `keypair_name`
 cargo run -- agent remove `keypair_name`
 cargo run -- agent status
@@ -38,6 +39,17 @@ cargo run -- remove `keypair_name`     # aliases: delete, rm
 ~/.ssh/keypair_name
 ~/.ssh/keypair_name.pub
 ```
+
+`export keypair_name` prints the public key. Add a remote SSH destination to
+install it in that account's `~/.ssh/authorized_keys` file:
+
+```text
+cargo run -- export keypair_name user@203.0.113.10
+```
+
+This requires the system `ssh` command and an existing way to authenticate to
+the remote account. The remote account must allow that login and use a
+Unix-like shell with `mktemp`, `grep`, and standard SSH file permissions.
 
 `generate` uses the system `ssh-keygen` command and prompts for a key
 passphrase plus confirmation by default. Use `--no-passphrase` only when an
