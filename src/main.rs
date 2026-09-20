@@ -33,6 +33,10 @@ enum Command {
     Generate {
         /// Key name without the .pub suffix.
         name: String,
+
+        /// Generate an unencrypted private key without prompting.
+        #[arg(long)]
+        no_passphrase: bool,
     },
 
     /// Show details for a managed SSH key pair.
@@ -63,6 +67,9 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum AgentCommand {
+    /// Show whether ssh-agent is available and list loaded keys.
+    Status,
+
     /// Load a managed private key into ssh-agent.
     Add {
         /// Key name without the .pub suffix.
@@ -100,10 +107,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Command::List => list_keys(&dir)?,
         Command::Add { private_key } => add_key(&dir, &private_key)?,
-        Command::Generate { name } => generate_key(&dir, &name)?,
+        Command::Generate {
+            name,
+            no_passphrase,
+        } => generate_key(&dir, &name, no_passphrase)?,
         Command::Show { name } => show_key(&dir, &name)?,
         Command::Export { name } => export_key(&dir, &name)?,
         Command::Agent { command } => match command {
+            AgentCommand::Status => agent_status()?,
             AgentCommand::Add { name } => agent_add(&dir, &name)?,
             AgentCommand::Remove { name } => agent_remove(&dir, &name)?,
         },
@@ -121,16 +132,26 @@ fn paths_for_key(dir: &Path, name: &str) -> Result<(PathBuf, PathBuf), Box<dyn s
     Ok((dir.join(name), dir.join(format!("{name}.pub"))))
 }
 
-fn generate_key(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn generate_key(
+    dir: &Path,
+    name: &str,
+    no_passphrase: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let (private_path, public_path) = paths_for_key(dir, name)?;
     if private_path.exists() || public_path.exists() {
         return Err(format!("a managed key named '{name}' already exists").into());
     }
 
-    let status = ProcessCommand::new("ssh-keygen")
+    let mut command = ProcessCommand::new("ssh-keygen");
+    command
         .args(["-q", "-t", "ed25519", "-f"])
         .arg(&private_path)
-        .args(["-C", name, "-N", ""])
+        .args(["-C", name]);
+    if no_passphrase {
+        command.args(["-N", ""]);
+    }
+
+    let status = command
         .status()
         .map_err(|err| format!("could not run ssh-keygen: {err}"))?;
 
@@ -181,11 +202,81 @@ fn export_key(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> 
 }
 
 fn agent_add(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_agent_available()?;
     run_ssh_add(dir, name, false)
 }
 
 fn agent_remove(dir: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_agent_available()?;
     run_ssh_add(dir, name, true)
+}
+
+fn agent_status() -> Result<(), Box<dyn std::error::Error>> {
+    ensure_agent_available()?;
+    let output = ProcessCommand::new("ssh-add")
+        .arg("-l")
+        .output()
+        .map_err(|err| format!("could not run ssh-add: {err}"))?;
+
+    if output.status.success() {
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.to_ascii_lowercase().contains("no identities") {
+        println!("ssh-agent is running; no keys are loaded.");
+        return Ok(());
+    }
+
+    Err(format!("could not determine ssh-agent status: {}", stderr.trim()).into())
+}
+
+fn ensure_agent_available() -> Result<(), Box<dyn std::error::Error>> {
+    let output = ProcessCommand::new("ssh-add")
+        .arg("-l")
+        .output()
+        .map_err(|err| format!("could not run ssh-add: {err}"))?;
+
+    if !agent_unreachable(&output) {
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        println!("ssh-agent is not running; trying to start the Windows service...");
+        let _ = ProcessCommand::new("sc.exe")
+            .args(["start", "ssh-agent"])
+            .output();
+
+        let retry = ProcessCommand::new("ssh-add")
+            .arg("-l")
+            .output()
+            .map_err(|err| format!("could not run ssh-add after starting ssh-agent: {err}"))?;
+        if !agent_unreachable(&retry) {
+            return Ok(());
+        }
+
+        return Err(
+            "ssh-agent is not available. Start the Windows OpenSSH Authentication Agent service, then try again."
+                .into(),
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err(
+            "ssh-agent is not available. Start one in this shell with: eval \"$(ssh-agent -s)\""
+                .into(),
+        )
+    }
+}
+
+fn agent_unreachable(output: &std::process::Output) -> bool {
+    let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+    stderr.contains("could not open a connection")
+        || stderr.contains("not a valid authentication agent")
+        || stderr.contains("error connecting to agent")
 }
 
 fn run_ssh_add(dir: &Path, name: &str, remove: bool) -> Result<(), Box<dyn std::error::Error>> {

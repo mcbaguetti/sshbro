@@ -1,7 +1,14 @@
 # sshbro
 
 A tiny local SSH key manager written in Rust.
-
+_______
+  /   __  \
+ |   /  \  |    ______ ______
+ |   \__/  |   / ____// ____/  sshbro
+  \_______/-\ | | __ / /____   a tiny SSH key manager
+       |    \  \ |/ //  __  /  Your keys. Your keys now.
+       o            \___//_/
+       
 ## Scope of the first MVP
 
 - Manages key pairs in `~/.ssh/sshbro/`.
@@ -23,10 +30,12 @@ This version does not touch `authorized_keys`, `known_hosts`, or existing
 cargo run -- list
 cargo run -- add ~/.ssh/`keypair_name`
 cargo run -- generate `keypair_name`   # or: cargo run -- gen `keypair_name`
+cargo run -- generate `keypair_name` --no-passphrase
 cargo run -- show `keypair_name`
 cargo run -- export `keypair_name`
 cargo run -- agent add `keypair_name`
 cargo run -- agent remove `keypair_name`
+cargo run -- agent status
 cargo run -- remove `keypair_name`     # aliases: delete, rm
 ```
 
@@ -37,5 +46,47 @@ cargo run -- remove `keypair_name`     # aliases: delete, rm
 ~/.ssh/keypair_name.pub
 ```
 
-`generate` uses the system `ssh-keygen` command, while `agent` uses the system
-`ssh-add` command. `ssh-agent` must be running for the agent commands to work.
+`generate` uses the system `ssh-keygen` command and prompts for a key
+passphrase plus confirmation by default. Use `--no-passphrase` only when an
+unencrypted private key is intentional. `agent` uses the system `ssh-add`
+command; it prompts for that same key passphrase before loading the key.
+
+## ssh-agent requirement
+
+The `agent add` and `agent remove` commands require the system `ssh-add`
+program and a running `ssh-agent`. Verify the agent is available before using
+those commands:
+
+```text
+ssh-add -l
+```
+
+`sshbro agent status` reports whether the agent is reachable and lists its
+loaded keys. On Windows, `agent add`, `agent remove`, and `agent status` first
+try to start the OpenSSH agent service automatically. If that fails, follow the
+Windows setup instructions below.
+
+On Windows, enable and start the built-in OpenSSH agent service from an
+elevated PowerShell once:
+
+```powershell
+Set-Service -Name ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+```
+
+If `ssh-add` is not found, install the OpenSSH Client optional feature.
+On macOS and most Linux distributions, start an agent for the current shell
+when needed:
+
+```sh
+eval "$(ssh-agent -s)"
+```
+
+Help for the entire CLI and each command:
+
+```text
+cargo run -- --help
+cargo run -- generate --help
+cargo run -- agent --help
+# Equivalent form: cargo run -- help generate
+```
